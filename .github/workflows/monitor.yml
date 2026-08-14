@@ -54,19 +54,6 @@ jobs:
           -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
           -d text="$MESSAGE"
 
-    - name: Send Email notification (Gmail)
-      if: env.NEW_NEWS == 'true'
-      run: |
-        SUBJECT="Nuova notizia ATA pubblicata"
-        BODY="È stata pubblicata una nuova notizia ATA:\nhttps://venezia.istruzioneveneto.gov.it$LATEST_LINK"
-
-        curl -s --url "smtps://smtp.gmail.com:465" \
-          --ssl-reqd \
-          --user "${{ secrets.EMAIL_USERNAME }}:${{ secrets.EMAIL_PASSWORD }}" \
-          --mail-from "${{ secrets.EMAIL_USERNAME }}" \
-          --mail-rcpt "${{ secrets.EMAIL_USERNAME }}" \
-          -T <(echo -e "Subject: $SUBJECT\n\n$BODY")
-
     - name: Save latest link to cache
       if: env.NEW_NEWS == 'true'
       run: |
