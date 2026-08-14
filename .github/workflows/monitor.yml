@@ -2,7 +2,7 @@ name: Monitor UST Venezia ATA
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # ogni 10 minuti
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -13,10 +13,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y jq curl
+    - name: Restore last seen link from cache
+      id: cache-last
+      uses: actions/cache@v3
+      with:
+        path: last_seen.txt
+        key: last-seen-key
 
     - name: Fetch UST Venezia page
       run: |
@@ -24,14 +26,13 @@ jobs:
 
     - name: Extract latest news link
       run: |
-        # Estrae il primo link della lista notizie
         LINK=$(grep -oP '(?<=href=")[^"]+' page.html | grep '/notizie/' | head -n 1)
         echo "LATEST_LINK=$LINK" >> $GITHUB_ENV
 
     - name: Load last seen link
       run: |
-        if [ -f last.txt ]; then
-          LAST=$(cat last.txt)
+        if [ -f last_seen.txt ]; then
+          LAST=$(cat last_seen.txt)
         else
           LAST=""
         fi
@@ -65,28 +66,8 @@ jobs:
           --mail-from "${{ secrets.EMAIL_USERNAME }}" \
           --mail-rcpt "${{ secrets.EMAIL_USERNAME }}" \
           -T <(echo -e "Subject: $SUBJECT\n\n$BODY")
-  
-    - name: Save latest link
-      if: env.NEW_NEWS == 'true'
-      run: |
-        echo "$LATEST_LINK" > last.txt
 
-    - name: Configure git remote
+    - name: Save latest link to cache
       if: env.NEW_NEWS == 'true'
       run: |
-        git config user.name "github-actions"
-        git config user.email "actions@github.com"
-        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-
-    - name: Commit updated last.txt
-      if: env.NEW_NEWS == 'true'
-      run: |
-        git config user.name "github-actions"
-        git config user.email "actions@github.com"
-        
-        # Recupera eventuali modifiche remote
-        git pull --rebase
-        
-        git add last.txt
-        git commit -m "Update last seen link"
-        git push
+        echo "$LATEST_LINK" > last_seen.txt
