@@ -13,6 +13,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    - name: Test Gmail SMTP
+      run: |
+        echo "Testing Gmail SMTP..."
+        curl -v --url "smtps://smtp.gmail.com:465" \
+          --ssl-reqd \
+          --user "${{ secrets.EMAIL_USERNAME }}:${{ secrets.EMAIL_PASSWORD }}" \
+          --mail-from "${{ secrets.EMAIL_USERNAME }}" \
+          --mail-rcpt "${{ secrets.EMAIL_USERNAME }}" \
+          -T <(echo -e "Subject: Test\n\nEmail di test")
+          
     - name: Restore last seen link from cache
       id: cache-last
       uses: actions/cache@v3
@@ -46,14 +56,7 @@ jobs:
           echo "NEW_NEWS=false" >> $GITHUB_ENV
         fi
     
-    - name: Test Gmail SMTP
-      run: |
-        curl -v --url "smtps://smtp.gmail.com:465" \
-          --ssl-reqd \
-          --user "${{ secrets.EMAIL_USERNAME }}:${{ secrets.EMAIL_PASSWORD }}" \
-          --mail-from "${{ secrets.EMAIL_USERNAME }}" \
-          --mail-rcpt "${{ secrets.EMAIL_USERNAME }}" \
-          -T <(echo -e "Subject: Test\n\nEmail di test")
+   
 
     - name: Send Telegram notification
       if: env.NEW_NEWS == 'true'
