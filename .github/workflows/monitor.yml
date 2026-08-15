@@ -47,6 +47,7 @@ jobs:
         fi
 
     - name: Send Outlook Email
+      if: env.NEW_NEWS == 'true'
       uses: dawidd6/action-send-mail@v3
       with:
         server_address: smtp.office365.com
@@ -61,6 +62,7 @@ jobs:
           <h2>Nuova notifica dal monitor</h2>
           <p>${{ steps.extract.outputs.title }}</p>
           <p><a href="${{ steps.extract.outputs.url }}">Apri la notizia</a></p>
+
 
     - name: Send Telegram notification
       if: env.NEW_NEWS == 'true'
