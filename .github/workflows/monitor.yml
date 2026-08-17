@@ -46,22 +46,25 @@ jobs:
           echo "NEW_NEWS=false" >> $GITHUB_ENV
         fi
 
-    - name: Send Outlook Email
-      if: env.NEW_NEWS == 'true'
-      uses: dawidd6/action-send-mail@v3
-      with:
-        server_address: smtp.office365.com
-        server_port: 587
-        secure: true
-        username: ${{ secrets.EMAIL_USERNAME }}
-        password: ${{ secrets.EMAIL_PASSWORD }}
-        from: ${{ secrets.EMAIL_USERNAME }}
-        to: ${{ secrets.EMAIL_TO }}
-        subject: "UST Venezia – Nuova notifica"
-        html_body: |
-          <h2>Nuova notifica dal monitor</h2>
-          <p>${{ steps.extract.outputs.title }}</p>
-          <p><a href="${{ steps.extract.outputs.url }}">Apri la notizia</a></p>
+    - name: Install smtp-cli
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y smtp-cli
+        
+    - name: Send Outlook email via smtp-cli
+      if: steps.check.outputs.has_news == 'true'
+      run: |
+        smtp-cli \
+          --server smtp.office365.com \
+          --port 587 \
+          --tls \
+          --auth \
+          --user "${{ secrets.EMAIL_USERNAME }}" \
+          --pass "${{ secrets.EMAIL_PASSWORD }}" \
+          --from "${{ secrets.EMAIL_USERNAME }}" \
+          --to "${{ secrets.EMAIL_TO }}" \
+          --subject "UST Venezia – Nuova notizia" \
+          --body-plain "È stata pubblicata una nuova notizia sul sito UST Venezia."
 
 
     - name: Send Telegram notification
