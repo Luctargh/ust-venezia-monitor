@@ -46,12 +46,8 @@ jobs:
           echo "NEW_NEWS=false" >> $GITHUB_ENV
         fi
 
-    - name: Install smtp-cli
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y smtp-cli
-        
-        - name: Install sendemail
+           
+    - name: Install sendemail
       run: |
         sudo apt-get update
         sudo apt-get install -y sendemail libnet-ssleay-perl libio-socket-ssl-perl
