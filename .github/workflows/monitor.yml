@@ -51,20 +51,24 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y smtp-cli
         
-    - name: Send Outlook email via smtp-cli
+        - name: Install sendemail
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sendemail libnet-ssleay-perl libio-socket-ssl-perl
+
+    - name: Send Outlook email via sendemail
       if: steps.check.outputs.has_news == 'true'
       run: |
-        smtp-cli \
-          --server smtp.office365.com \
-          --port 587 \
-          --tls \
-          --auth \
-          --user "${{ secrets.EMAIL_USERNAME }}" \
-          --pass "${{ secrets.EMAIL_PASSWORD }}" \
-          --from "${{ secrets.EMAIL_USERNAME }}" \
-          --to "${{ secrets.EMAIL_TO }}" \
-          --subject "UST Venezia – Nuova notizia" \
-          --body-plain "È stata pubblicata una nuova notizia sul sito UST Venezia."
+        sendemail \
+          -f "${{ secrets.EMAIL_USERNAME }}" \
+          -t "${{ secrets.EMAIL_TO }}" \
+          -u "UST Venezia – Nuova notizia" \
+          -m "È stata pubblicata una nuova notizia sul sito UST Venezia." \
+          -s smtp.office365.com:587 \
+          -xu "${{ secrets.EMAIL_USERNAME }}" \
+          -xp "${{ secrets.EMAIL_PASSWORD }}" \
+          -o tls=yes
+
 
 
     - name: Send Telegram notification
