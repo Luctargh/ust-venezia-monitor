@@ -1,4 +1,4 @@
-name: UST Venezia Monitor ATA
+name: UST Venezia – Monitor Albo Pretorio ATA
 
 on:
   schedule:
@@ -13,27 +13,20 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      # 1️⃣ Scarica tutte le pagine che contengono ATA
-      - name: Download ATA categories
+      # 1️⃣ Scarica la pagina dell’Albo Pretorio
+      - name: Download Albo Pretorio
         run: |
-          mkdir pages
-          curl -s https://venezia.istruzioneveneto.gov.it/personale-ata > pages/ata.html
-          curl -s https://venezia.istruzioneveneto.gov.it/utilizzazioni-assegnazioni-provvisorie > pages/uap.html
-          curl -s https://venezia.istruzioneveneto.gov.it/avvisi > pages/avvisi.html
-          curl -s https://venezia.istruzioneveneto.gov.it/organico > pages/organico.html
-          curl -s https://venezia.istruzioneveneto.gov.it/comunicazioni > pages/comunicazioni.html
-          curl -s https://venezia.istruzioneveneto.gov.it/notizie > pages/notizie.html
+          curl -s https://venezia.istruzioneveneto.gov.it/argomenti/albo-pretorio > albo.html
 
-      # 2️⃣ Estrai TUTTI i link delle notizie ATA
-      - name: Extract all news links
+      # 2️⃣ Estrai TUTTI i link delle pubblicazioni
+      - name: Extract publication links
         run: |
-          > links.txt
-          for FILE in pages/*.html; do
-            grep -oP '(?<=href=")/notizie/.*?(?=")' "$FILE" >> links.txt || true
-          done
+          # I link dell’Albo Pretorio hanno SEMPRE questo formato:
+          # /20260818_34229
+          grep -oP '(?<=href=")/[0-9]{8}_[0-9]+(?=")' albo.html > links.txt || true
           sort -u links.txt -o links.txt
 
-      # 3️⃣ Estrai titolo + data completa + descrizione
+      # 3️⃣ Apri ogni pubblicazione e estrai titolo + data/ora + descrizione
       - name: Extract full data
         run: |
           mkdir newsdata
