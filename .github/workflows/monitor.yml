@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  check-news:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Download news page
+      - name: Download main news page
         run: |
           curl -s https://venezia.istruzioneveneto.gov.it/notizie > page.html
 
@@ -22,8 +22,8 @@ jobs:
         run: |
           grep -oP '(?<=href=")/notizie/.*?(?=")' page.html > links.txt || true
 
-      # 2️⃣ Estrai titolo + data + descrizione
-      - name: Extract title, date and description
+      # 2️⃣ Per ogni notizia: estrai titolo + data completa (con ora) + descrizione
+      - name: Extract full data
         run: |
           mkdir newsdata
           > newsdata/all.txt
@@ -35,22 +35,22 @@ jobs:
             curl -s "$FULL" > "$FILE"
 
             TITLE=$(grep -oP '(?<=<h1 class="entry-title">).*?(?=</h1>)' "$FILE" | head -n 1)
-            DATE=$(grep -oP '(?<=<time class="entry-date published" datetime=").*?(?=")' "$FILE" | head -n 1)
+            DATETIME=$(grep -oP '(?<=datetime=").*?(?=")' "$FILE" | head -n 1)
             DESC=$(grep -oP '(?<=<p>).*?(?=</p>)' "$FILE" | head -n 1)
 
-            echo "$LINK|$TITLE|$DATE|$DESC" >> newsdata/all.txt
+            echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/all.txt
           done
 
       # 3️⃣ Filtra SOLO le notizie ATA dal titolo
-      - name: Filter ATA news
+      - name: Filter ATA
         run: |
           > newsdata/ata.txt
-          while IFS="|" read -r LINK TITLE DATE DESC; do
+          while IFS="|" read -r LINK TITLE DATETIME DESC; do
             echo "$TITLE" | grep -Ei "a\.?t\.?a" >/dev/null && \
-              echo "$LINK|$TITLE|$DATE|$DESC" >> newsdata/ata.txt
+              echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/ata.txt
           done < newsdata/all.txt
 
-      # 4️⃣ Confronta DATA+LINK con latest_seen.txt
+      # 4️⃣ Confronta DATA+ORA+LINK con latest_seen.txt
       - name: Detect new ATA news
         run: |
           if [ ! -f latest_seen.txt ]; then
@@ -59,10 +59,10 @@ jobs:
 
           > newsdata/new.txt
 
-          while IFS="|" read -r LINK TITLE DATE DESC; do
-            KEY="$DATE|$LINK"
+          while IFS="|" read -r LINK TITLE DATETIME DESC; do
+            KEY="$DATETIME|$LINK"
             if ! grep -q "$KEY" latest_seen.txt; then
-              echo "$LINK|$TITLE|$DATE|$DESC" >> newsdata/new.txt
+              echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/new.txt
               echo "$KEY" >> latest_seen.txt
             fi
           done < newsdata/ata.txt
@@ -73,13 +73,13 @@ jobs:
             echo "NEW_NEWS=false" >> $GITHUB_ENV
           fi
 
-      # 5️⃣ Invia NOTIFICA Telegram SOLO per le notizie ATA nuove
+      # 5️⃣ Invia Telegram
       - name: Send Telegram notifications
         if: env.NEW_NEWS == 'true'
         run: |
-          while IFS="|" read -r LINK TITLE DATE DESC; do
+          while IFS="|" read -r LINK TITLE DATETIME DESC; do
             FULL="https://venezia.istruzioneveneto.gov.it$LINK"
-            MESSAGE="🆕 *Nuova notizia ATA!*\n\n📅 *Data:* $DATE\n📌 *Titolo:* $TITLE\n📝 *Descrizione:* $DESC\n🔗 $FULL"
+            MESSAGE="🆕 *Nuova notizia ATA!*\n\n📅 *Data:* $DATETIME\n📌 *Titolo:* $TITLE\n📝 *Descrizione:* $DESC\n🔗 $FULL"
             curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
               -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
               -d text="$MESSAGE" \
