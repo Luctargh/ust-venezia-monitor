@@ -20,7 +20,7 @@ jobs:
       # 1️⃣ Estrai TUTTI i link delle notizie ATA
       - name: Extract ATA news links
         run: |
-          grep -oP '(?<=href=")/notizie/.*?(?=")' page.html | grep -i "ata" > links.txt
+          grep -oP '(?<=href=")/notizie/.*?(?=")' page.html | grep -Ei "a\.?t\.?a" > links.txt || true
           cat links.txt
 
       # 2️⃣ Confronta con latest.txt e trova TUTTE le nuove notizie
