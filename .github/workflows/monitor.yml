@@ -60,7 +60,7 @@ jobs:
       # 4️⃣ Invia EMAIL Outlook per ogni notizia ATA
       - name: Send Outlook email
         if: env.NEW_NEWS == 'true'
-        uses: peter-evans/send-email@v1
+        uses: dawidd6/send-email@v3
         with:
           server_address: smtp.office365.com
           server_port: 587
