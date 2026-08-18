@@ -1,8 +1,8 @@
-name: Monitor UST Venezia ATA
+name: UST Venezia Monitor
 
 on:
   schedule:
-    - cron: "*/10 6-18 * * *"
+    - cron: "*/30 6-18 * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,72 +10,77 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-              
-    - name: Restore last seen link from cache
-      id: cache-last
-      uses: actions/cache@v3
-      with:
-        path: last_seen.txt
-        key: last-seen-key
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-    - name: Fetch UST Venezia page
-      run: |
-        curl -s https://venezia.istruzioneveneto.gov.it/notizie/ > page.html
+      - name: Download news page
+        run: |
+          curl -s https://venezia.istruzioneveneto.gov.it/notizie > page.html
 
-    - name: Extract latest news link
-      run: |
-        LINK=$(grep -oP '(?<=href=")[^"]+' page.html | grep '/notizie/' | head -n 1)
-        echo "LATEST_LINK=$LINK" >> $GITHUB_ENV
+      # 1️⃣ Estrai TUTTI i link delle notizie ATA
+      - name: Extract ATA news links
+        run: |
+          grep -oP '(?<=href=")/notizie/.*?(?=")' page.html | grep -i "ata" > links.txt
+          cat links.txt
 
-    - name: Load last seen link
-      run: |
-        if [ -f last_seen.txt ]; then
-          LAST=$(cat last_seen.txt)
-        else
-          LAST=""
-        fi
-        echo "LAST_SEEN=$LAST" >> $GITHUB_ENV
+      # 2️⃣ Confronta con latest.txt e trova TUTTE le nuove notizie
+      - name: Detect new ATA news
+        run: |
+          NEW_LINKS=""
+          while read -r LINK; do
+            if ! grep -q "$LINK" latest.txt; then
+              NEW_LINKS="$NEW_LINKS $LINK"
+            fi
+          done < links.txt
 
-    - name: Compare links
-      run: |
-        if [ "$LATEST_LINK" != "$LAST_SEEN" ]; then
-          echo "NEW_NEWS=true" >> $GITHUB_ENV
-        else
-          echo "NEW_NEWS=false" >> $GITHUB_ENV
-        fi
+          if [ -n "$NEW_LINKS" ]; then
+            echo "NEW_NEWS=true" >> $GITHUB_ENV
+            echo "NEW_LINKS=$NEW_LINKS" >> $GITHUB_ENV
+          else
+            echo "NEW_NEWS=false" >> $GITHUB_ENV
+          fi
 
-           
-    - name: Install sendemail
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y sendemail libnet-ssleay-perl libio-socket-ssl-perl
+      # 3️⃣ Per ogni nuova notizia: scarica la pagina e estrai titolo + descrizione
+      - name: Extract title and description for each news
+        if: env.NEW_NEWS == 'true'
+        run: |
+          mkdir newsdata
+          for LINK in $NEW_LINKS; do
+            FULL="https://venezia.istruzioneveneto.gov.it$LINK"
+            FILE="newsdata/$(echo $LINK | tr '/' '_').html"
 
-    - name: Send Outlook email via sendemail
-      if: steps.check.outputs.has_news == 'true'
-      run: |
-        sendemail \
-          -f "${{ secrets.EMAIL_USERNAME }}" \
-          -t "${{ secrets.EMAIL_TO }}" \
-          -u "UST Venezia – Nuova notizia" \
-          -m "È stata pubblicata una nuova notizia sul sito UST Venezia." \
-          -s smtp.office365.com:587 \
-          -xu "${{ secrets.EMAIL_USERNAME }}" \
-          -xp "${{ secrets.EMAIL_PASSWORD }}" \
-          -o tls=yes
+            curl -s "$FULL" > "$FILE"
 
+            TITLE=$(grep -oP '(?<=<h1 class="entry-title">).*?(?=</h1>)' "$FILE" | head -n 1)
+            DESC=$(grep -oP '(?<=<p>).*?(?=</p>)' "$FILE" | head -n 1)
 
+            echo "$LINK|$TITLE|$DESC" >> newsdata/extracted.txt
+          done
 
-    - name: Send Telegram notification
-      if: env.NEW_NEWS == 'true'
-      run: |
-        MESSAGE="Nuova notizia ATA pubblicata:\nhttps://venezia.istruzioneveneto.gov.it$LATEST_LINK"
-        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-          -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-          -d text="$MESSAGE"
+      # 4️⃣ Invia EMAIL Outlook per ogni notizia ATA
+      - name: Send Outlook email
+        if: env.NEW_NEWS == 'true'
+        uses: peter-evans/send-email@v1
+        with:
+          server_address: smtp.office365.com
+          server_port: 587
+          username: ${{ secrets.OUTLOOK_USERNAME }}
+          password: ${{ secrets.OUTLOOK_PASSWORD }}
+          subject: "UST Venezia – Nuova notizia ATA"
+          to: ${{ secrets.OUTLOOK_TO }}
+          content_type: text/html
+          body: |
+            <h2>Nuove notizie ATA pubblicate</h2>
+            <ul>
+            $(
+              while IFS="|" read -r LINK TITLE DESC; do
+                echo "<li><b>$TITLE</b><br>$DESC<br><a href='https://venezia.istruzioneveneto.gov.it$LINK'>Apri notizia</a></li>"
+              done < newsdata/extracted.txt
+            )
+            </ul>
 
-    - name: Save latest link to cache
-      if: env.NEW_NEWS == 'true'
-      run: |
-        echo "$LATEST_LINK" > last_seen.txt
+      # 5️⃣ Invia NOTIFICA Telegram per ogni notizia ATA
+      - name: Send Telegram notifications
+        if: env.NEW_NEWS == 'true'
+        run: |
+          while IFS="|" read
