@@ -57,30 +57,30 @@ jobs:
             echo "$LINK|$TITLE|$DESC" >> newsdata/extracted.txt
           done
 
-      # 4️⃣ Invia EMAIL Outlook per ogni notizia ATA
-      - name: Send Outlook email
-        if: env.NEW_NEWS == 'true'
-        uses: dawidd6/send-email@v3
-        with:
-          server_address: smtp.office365.com
-          server_port: 587
-          username: ${{ secrets.OUTLOOK_USERNAME }}
-          password: ${{ secrets.OUTLOOK_PASSWORD }}
-          subject: "UST Venezia – Nuova notizia ATA"
-          to: ${{ secrets.OUTLOOK_TO }}
-          content_type: text/html
-          body: |
-            <h2>Nuove notizie ATA pubblicate</h2>
-            <ul>
-            $(
-              while IFS="|" read -r LINK TITLE DESC; do
-                echo "<li><b>$TITLE</b><br>$DESC<br><a href='https://venezia.istruzioneveneto.gov.it$LINK'>Apri notizia</a></li>"
-              done < newsdata/extracted.txt
-            )
-            </ul>
-
-      # 5️⃣ Invia NOTIFICA Telegram per ogni notizia ATA
+      # 4️⃣ Invia NOTIFICA Telegram per ogni notizia ATA
       - name: Send Telegram notifications
         if: env.NEW_NEWS == 'true'
         run: |
-          while IFS="|" read
+          while IFS="|" read -r LINK TITLE DESC; do
+            FULL="https://venezia.istruzioneveneto.gov.it$LINK"
+            MESSAGE="🆕 *Nuova notizia ATA!*\n\n📌 *Titolo:* $TITLE\n📝 *Descrizione:* $DESC\n🔗 $FULL"
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+              -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+              -d text="$MESSAGE" \
+              -d parse_mode="Markdown"
+          done < newsdata/extracted.txt
+
+      # 5️⃣ Aggiorna latest.txt con l’ultimo link ATA
+      - name: Update latest.txt
+        if: env.NEW_NEWS == 'true'
+        run: |
+          head -n 1 links.txt > latest.txt
+
+      - name: Commit latest.txt
+        if: env.NEW_NEWS == 'true'
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add latest.txt
+          git commit -m "Update latest ATA news"
+          git push
