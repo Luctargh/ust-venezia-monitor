@@ -13,35 +13,33 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      # 1️⃣ Scarica le pubblicazioni via API JSON
+      # 1️⃣ Scarica le pubblicazioni via API JSON di WordPress
       - name: Download API JSON
         run: |
-          curl -s "https://venezia.istruzioneveneto.gov.it/wp-json/wp/v2/posts?per_page=100" > api.json
+          curl -s "https://istruzioneveneto.gov.it" > api.json
 
-      # 2️⃣ Estrai solo le pubblicazioni ATA
+      # 2️⃣ Estrai e filtra con jq (rimuovendo i ritorni a capo all'interno dei testi)
       - name: Filter ATA posts
         run: |
           mkdir newsdata
-          > newsdata/ata.txt
-
-          # Estrai: titolo, data, link, contenuto
-          jq -r '.[] | "\(.title.rendered)|\(.date)|\(.link)|\(.content.rendered)"' api.json \
+          
+          # jq pulisce i testi dai ritorni a capo per evitare di rompere la struttura a righe
+          jq -r '.[] | "\(.title.rendered | gsub("\n"; " ") | gsub("\r"; ""))|\(.date)|\(.link)"' api.json \
             | grep -Ei "a\.?t\.?a" \
-            > newsdata/ata.txt
+            > newsdata/ata.txt || true
 
       # 3️⃣ Confronta DATA+LINK con latest_seen.txt
       - name: Detect new ATA news
         run: |
-          if [ ! -f latest_seen.txt ]; then
-            touch latest_seen.txt
-          fi
-
+          touch latest_seen.txt
           > newsdata/new.txt
 
-          while IFS="|" read -r TITLE DATE LINK CONTENT; do
+          while IFS="|" read -r TITLE DATE LINK; do
+            [ -z "$LINK" ] && continue
             KEY="$DATE|$LINK"
-            if ! grep -q "$KEY" latest_seen.txt; then
-              echo "$TITLE|$DATE|$LINK|$CONTENT" >> newsdata/new.txt
+            
+            if ! grep -qF "$KEY" latest_seen.txt; then
+              echo "$TITLE|$DATE|$LINK" >> newsdata/new.txt
               echo "$KEY" >> latest_seen.txt
             fi
           done < newsdata/ata.txt
@@ -52,31 +50,31 @@ jobs:
             echo "NEW_NEWS=false" >> $GITHUB_ENV
           fi
 
-      # 4️⃣ Invia Telegram
+      # 4️⃣ Invia Telegram (Utilizza HTML al posto di Markdown per evitare crash sui caratteri speciali)
       - name: Send Telegram notifications
         if: env.NEW_NEWS == 'true'
         run: |
-          while IFS="|" read -r TITLE DATE LINK CONTENT; do
-            MESSAGE="🆕 *Nuova notizia ATA!*\n\n📅 *Data:* $DATE\n📌 *Titolo:* $TITLE\n🔗 $LINK"
+          while IFS="|" read -r TITLE DATE LINK; do
+            # Sostituisce le entità HTML comuni restituite dalle API di WordPress (es. &#8211; o &amp;)
+            CLEAN_TITLE=$(echo "$TITLE" | sed 's/&#8211;/-/g; s/&amp;/&/g; s/&#8217;/'"'"'/g')
+            
+            MESSAGE="🆕 <b>Nuova notizia ATA!</b>%0A%0A📅 <b>Data:</b> $DATE%0A📌 <b>Titolo:</b> $CLEAN_TITLE%0A🔗 <a href=\"$LINK\">Apri il link della notizia</a>"
+            
             curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
               -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
               -d text="$MESSAGE" \
-              -d parse_mode="Markdown"
+              -d parse_mode="HTML"
           done < newsdata/new.txt
    
-      - name: Send Telegram NO-NEWS notification
-        if: env.NEW_NEWS == 'false'
-        run: |
-          MESSAGE="ℹ️ Nessuna nuova notizia ATA."
-          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d text="$MESSAGE"
+      # NOTA: Rimosso il messaggio di NO-NEWS continuo per evitare spam ogni 30 minuti sul canale.
 
+      # 5️⃣ Commit sicuro con prevenzione dei conflitti
       - name: Commit latest_seen.txt
         if: env.NEW_NEWS == 'true'
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
+          git pull origin main --rebase || true
           git add latest_seen.txt
-          git commit -m "Update seen ATA news"
-          git push
+          git commit -m "Update seen ATA news [skip ci]"
+          git push origin HEAD:main
