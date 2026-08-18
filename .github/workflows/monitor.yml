@@ -1,4 +1,4 @@
-name: UST Venezia Monitor
+name: UST Venezia Monitor ATA
 
 on:
   schedule:
@@ -13,16 +13,27 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Download main news page
+      # 1️⃣ Scarica tutte le pagine che contengono ATA
+      - name: Download ATA categories
         run: |
-          curl -s https://venezia.istruzioneveneto.gov.it/notizie > page.html
+          mkdir pages
+          curl -s https://venezia.istruzioneveneto.gov.it/personale-ata > pages/ata.html
+          curl -s https://venezia.istruzioneveneto.gov.it/utilizzazioni-assegnazioni-provvisorie > pages/uap.html
+          curl -s https://venezia.istruzioneveneto.gov.it/avvisi > pages/avvisi.html
+          curl -s https://venezia.istruzioneveneto.gov.it/organico > pages/organico.html
+          curl -s https://venezia.istruzioneveneto.gov.it/comunicazioni > pages/comunicazioni.html
+          curl -s https://venezia.istruzioneveneto.gov.it/notizie > pages/notizie.html
 
-      # 1️⃣ Estrai TUTTI i link delle notizie
+      # 2️⃣ Estrai TUTTI i link delle notizie ATA
       - name: Extract all news links
         run: |
-          grep -oP '(?<=href=")/notizie/.*?(?=")' page.html > links.txt || true
+          > links.txt
+          for FILE in pages/*.html; do
+            grep -oP '(?<=href=")/notizie/.*?(?=")' "$FILE" >> links.txt || true
+          done
+          sort -u links.txt -o links.txt
 
-      # 2️⃣ Per ogni notizia: estrai titolo + data completa (con ora) + descrizione
+      # 3️⃣ Estrai titolo + data completa + descrizione
       - name: Extract full data
         run: |
           mkdir newsdata
@@ -41,7 +52,7 @@ jobs:
             echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/all.txt
           done
 
-      # 3️⃣ Filtra SOLO le notizie ATA dal titolo
+      # 4️⃣ Filtra SOLO le notizie ATA dal titolo
       - name: Filter ATA
         run: |
           > newsdata/ata.txt
@@ -50,7 +61,7 @@ jobs:
               echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/ata.txt
           done < newsdata/all.txt
 
-      # 4️⃣ Confronta DATA+ORA+LINK con latest_seen.txt
+      # 5️⃣ Confronta DATA+ORA+LINK con latest_seen.txt
       - name: Detect new ATA news
         run: |
           if [ ! -f latest_seen.txt ]; then
@@ -73,7 +84,7 @@ jobs:
             echo "NEW_NEWS=false" >> $GITHUB_ENV
           fi
 
-      # 5️⃣ Invia Telegram
+      # 6️⃣ Invia Telegram
       - name: Send Telegram notifications
         if: env.NEW_NEWS == 'true'
         run: |
