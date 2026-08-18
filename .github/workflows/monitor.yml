@@ -1,4 +1,4 @@
-name: UST Venezia – Monitor Albo Pretorio ATA
+name: UST Venezia – Monitor ATA via API JSON
 
 on:
   schedule:
@@ -13,48 +13,23 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      # 1️⃣ Scarica la pagina dell’Albo Pretorio
-      - name: Download Albo Pretorio
+      # 1️⃣ Scarica le pubblicazioni via API JSON
+      - name: Download API JSON
         run: |
-          curl -s https://venezia.istruzioneveneto.gov.it/argomenti/albo-pretorio > albo.html
+          curl -s "https://venezia.istruzioneveneto.gov.it/wp-json/wp/v2/posts?per_page=100" > api.json
 
-      # 2️⃣ Estrai TUTTI i link delle pubblicazioni
-      - name: Extract publication links
-        run: |
-          # I link dell’Albo Pretorio hanno SEMPRE questo formato:
-          # /20260818_34229
-          grep -oP '(?<=href=")/[0-9]{8}_[0-9]+(?=")' albo.html > links.txt || true
-          sort -u links.txt -o links.txt
-
-      # 3️⃣ Apri ogni pubblicazione e estrai titolo + data/ora + descrizione
-      - name: Extract full data
+      # 2️⃣ Estrai solo le pubblicazioni ATA
+      - name: Filter ATA posts
         run: |
           mkdir newsdata
-          > newsdata/all.txt
-
-          for LINK in $(cat links.txt); do
-            FULL="https://venezia.istruzioneveneto.gov.it$LINK"
-            FILE="newsdata/$(echo $LINK | tr '/' '_').html"
-
-            curl -s "$FULL" > "$FILE"
-
-            TITLE=$(grep -oP '(?<=<h1 class="entry-title">).*?(?=</h1>)' "$FILE" | head -n 1)
-            DATETIME=$(grep -oP '(?<=datetime=").*?(?=")' "$FILE" | head -n 1)
-            DESC=$(grep -oP '(?<=<p>).*?(?=</p>)' "$FILE" | head -n 1)
-
-            echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/all.txt
-          done
-
-      # 4️⃣ Filtra SOLO le notizie ATA dal titolo
-      - name: Filter ATA
-        run: |
           > newsdata/ata.txt
-          while IFS="|" read -r LINK TITLE DATETIME DESC; do
-            echo "$TITLE" | grep -Ei "a\.?t\.?a" >/dev/null && \
-              echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/ata.txt
-          done < newsdata/all.txt
 
-      # 5️⃣ Confronta DATA+ORA+LINK con latest_seen.txt
+          # Estrai: titolo, data, link, contenuto
+          jq -r '.[] | "\(.title.rendered)|\(.date)|\(.link)|\(.content.rendered)"' api.json \
+            | grep -Ei "a\.?t\.?a" \
+            > newsdata/ata.txt
+
+      # 3️⃣ Confronta DATA+LINK con latest_seen.txt
       - name: Detect new ATA news
         run: |
           if [ ! -f latest_seen.txt ]; then
@@ -63,10 +38,10 @@ jobs:
 
           > newsdata/new.txt
 
-          while IFS="|" read -r LINK TITLE DATETIME DESC; do
-            KEY="$DATETIME|$LINK"
+          while IFS="|" read -r TITLE DATE LINK CONTENT; do
+            KEY="$DATE|$LINK"
             if ! grep -q "$KEY" latest_seen.txt; then
-              echo "$LINK|$TITLE|$DATETIME|$DESC" >> newsdata/new.txt
+              echo "$TITLE|$DATE|$LINK|$CONTENT" >> newsdata/new.txt
               echo "$KEY" >> latest_seen.txt
             fi
           done < newsdata/ata.txt
@@ -77,13 +52,12 @@ jobs:
             echo "NEW_NEWS=false" >> $GITHUB_ENV
           fi
 
-      # 6️⃣ Invia Telegram
+      # 4️⃣ Invia Telegram
       - name: Send Telegram notifications
         if: env.NEW_NEWS == 'true'
         run: |
-          while IFS="|" read -r LINK TITLE DATETIME DESC; do
-            FULL="https://venezia.istruzioneveneto.gov.it$LINK"
-            MESSAGE="🆕 *Nuova notizia ATA!*\n\n📅 *Data:* $DATETIME\n📌 *Titolo:* $TITLE\n📝 *Descrizione:* $DESC\n🔗 $FULL"
+          while IFS="|" read -r TITLE DATE LINK CONTENT; do
+            MESSAGE="🆕 *Nuova notizia ATA!*\n\n📅 *Data:* $DATE\n📌 *Titolo:* $TITLE\n🔗 $LINK"
             curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
               -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
               -d text="$MESSAGE" \
