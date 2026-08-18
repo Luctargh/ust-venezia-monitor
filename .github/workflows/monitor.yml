@@ -17,14 +17,14 @@ jobs:
         run: |
           curl -s https://venezia.istruzioneveneto.gov.it/notizie > page.html
 
-      # 1️⃣ Estrai TUTTI i link delle notizie ATA
-      - name: Extract ATA news links
+      # 1️⃣ Estrai TUTTI i link delle notizie (senza filtrare ATA)
+      - name: Extract all news links
         run: |
-          grep -oP '(?<=href=")/notizie/.*?(?=")' page.html | grep -Ei "a\.?t\.?a" > links.txt || true
+          grep -oP '(?<=href=")/notizie/.*?(?=")' page.html > links.txt || true
           cat links.txt
 
       # 2️⃣ Confronta con latest.txt e trova TUTTE le nuove notizie
-      - name: Detect new ATA news
+      - name: Detect new news
         run: |
           NEW_LINKS=""
           while read -r LINK; do
@@ -40,11 +40,13 @@ jobs:
             echo "NEW_NEWS=false" >> $GITHUB_ENV
           fi
 
-      # 3️⃣ Per ogni nuova notizia: scarica la pagina e estrai titolo + descrizione
-      - name: Extract title and description for each news
+      # 3️⃣ Per ogni nuova notizia: scarica la pagina e filtra SOLO quelle ATA dal titolo
+      - name: Extract ATA titles
         if: env.NEW_NEWS == 'true'
         run: |
           mkdir newsdata
+          > newsdata/ata.txt
+
           for LINK in $NEW_LINKS; do
             FULL="https://venezia.istruzioneveneto.gov.it$LINK"
             FILE="newsdata/$(echo $LINK | tr '/' '_').html"
@@ -54,13 +56,20 @@ jobs:
             TITLE=$(grep -oP '(?<=<h1 class="entry-title">).*?(?=</h1>)' "$FILE" | head -n 1)
             DESC=$(grep -oP '(?<=<p>).*?(?=</p>)' "$FILE" | head -n 1)
 
-            echo "$LINK|$TITLE|$DESC" >> newsdata/extracted.txt
+            # Filtra ATA / A.T.A. nel titolo
+            echo "$TITLE" | grep -Ei "a\.?t\.?a" >/dev/null && \
+              echo "$LINK|$TITLE|$DESC" >> newsdata/ata.txt
           done
 
-      # 4️⃣ Invia NOTIFICA Telegram per ogni notizia ATA
+      # 4️⃣ Invia NOTIFICA Telegram SOLO per le notizie ATA
       - name: Send Telegram notifications
         if: env.NEW_NEWS == 'true'
         run: |
+          if [ ! -s newsdata/ata.txt ]; then
+            echo "No ATA news found."
+            exit 0
+          fi
+
           while IFS="|" read -r LINK TITLE DESC; do
             FULL="https://venezia.istruzioneveneto.gov.it$LINK"
             MESSAGE="🆕 *Nuova notizia ATA!*\n\n📌 *Titolo:* $TITLE\n📝 *Descrizione:* $DESC\n🔗 $FULL"
@@ -68,9 +77,9 @@ jobs:
               -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
               -d text="$MESSAGE" \
               -d parse_mode="Markdown"
-          done < newsdata/extracted.txt
+          done < newsdata/ata.txt
 
-      # 5️⃣ Aggiorna latest.txt con l’ultimo link ATA
+      # 5️⃣ Aggiorna latest.txt con l’ultimo link
       - name: Update latest.txt
         if: env.NEW_NEWS == 'true'
         run: |
@@ -82,5 +91,5 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
           git add latest.txt
-          git commit -m "Update latest ATA news"
+          git commit -m "Update latest news"
           git push
